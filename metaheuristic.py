@@ -158,7 +158,11 @@ class Metaheuristic:
             Fitness value (higher is better)
         """
         # Decode chromosome to portfolio solution
-        solution = self._decode_solution(individual)
+        if individual.ndim == 1 and np.sum(individual > 0) == self.k:
+            solution = individual  # already decoded
+        else:
+            solution = self._decode_solution(individual)
+
 
         # Calculate DIVERSITY (objective function)
         diversity = 0.0
@@ -181,6 +185,37 @@ class Metaheuristic:
         fitness = diversity - return_penalty - selection_penalty
 
         return fitness
+    
+    def _local_search(self, decoded_solution, steps=20, step_size=0.05):
+        """
+        Local search on a decoded (feasible) solution.
+        Shifts small weight between selected assets to improve fitness.
+        """
+        best_solution = decoded_solution.copy()
+        best_fitness = self._fitness(best_solution)
+
+        selected = np.where(best_solution > 0)[0]
+
+        for _ in range(steps):
+            i, j = np.random.choice(selected, size=2, replace=False)
+
+            new_solution = best_solution.copy()
+            delta = min(step_size, new_solution[i])
+
+            new_solution[i] -= delta
+            new_solution[j] += delta
+
+            # Re-normalize selected weights
+            new_solution[selected] /= new_solution[selected].sum()
+
+            fitness = self._fitness(new_solution)
+
+            if fitness > best_fitness:
+                best_solution = new_solution
+                best_fitness = fitness
+
+        return best_solution
+
 
     def _initialize_population(self):
         """
@@ -484,8 +519,13 @@ class Metaheuristic:
 
             if current_best_fitness > best_fitness:
                 best_fitness = current_best_fitness
-                self.best_solution = self._decode_solution(population[current_best_idx]).tolist()
+
+                decoded = self._decode_solution(population[current_best_idx])
+                improved = self._local_search(decoded)
+
+                self.best_solution = improved.tolist()
                 no_improvement_count = 0
+
             else:
                 no_improvement_count += 1
 
